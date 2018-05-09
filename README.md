@@ -1,2 +1,2 @@
 # pg2isilon
-A C++ implementation for migrating data from Postgresql to Isilon
+Uma implementação em C++ para a migração de dados do Postgresql para o Isilon

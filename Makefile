@@ -16,6 +16,7 @@ all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
 	@echo " Linking..."
+	@mkdir -p ${TARGETDIR}
 	@echo " $(CXX) $^ -o $(TARGETDIR)/$(TARGET) $(LIB)"; $(CXX) $^ -o $(TARGETDIR)/$(TARGET) $(LIB)
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.$(SRCEXT)

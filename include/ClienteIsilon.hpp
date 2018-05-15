@@ -57,15 +57,22 @@ private:
 	std::string _token_armazenamento;
 	std::string _url_armazenamento;
 	std::string _url_area_armazenamento;
+
 	int atualizar_token_armazenamento();
 	int validar_resposta_requisicao(RestClient::Response &resposta);
     RestClient::Connection* criar_conexao(std::string url);
+    RestClient::Connection* obter_conexao_com_token();
+
 public:
+	const int ERRO_NAO_ESPERADO = -1;
 	const int SUCESSO = 0;
+	const int ERRO_ARQUIVO_NAO_EXISTE = 400;
+
 	const int ERRO_RECUPERAR_PARAMETROS_AUTENTICACAO = 100;
 	const int ERRO_RECUPERAR_TOKEN_AUTENTICACAO = 101;
 	const int ERRO_NAO_AUTORIZADO = 103;
 	const int ERRO_NAO_ENCONTADO = 104;
+	
     ClienteIsilon(std::string url_autenticacao, std::string nome_usuario, std::string senha_usuario, std::string diretorio_base):
         _url_autenticacao(url_autenticacao), 
 		_nome_usuario(nome_usuario), 
@@ -87,12 +94,24 @@ public:
 		RestClient::disable();
 	}
     void obter_info_diretorio();
-    int listar_arquivos(std::vector<std::string> &arquivos);
+
+	const int ERRO_LISTAR_ARQUIVOS = 108;
+    int listar_arquivos(std::vector<std::string> &arquivos, std::string caminho_diretorio);
+
+	const int ERRO_SALVAMENTO_ARQUIVO = 105;
+	const int ERRO_VERIFICACAO_SALVAMENTO_ARQUIVO = 106;
     int salvar_arquivo(std::vector<char> &conteudo, std::string &caminho_arquivo, TipoSalvamentoIsilon tipoSalvamento);
     int salvar_arquivo(std::vector<char> &conteudo, DataHora data_hora, std::string &caminho_arquivo, TipoSalvamentoIsilon tipoSalvamento);
+
     int recuperar_arquivo(std::string caminho_arquivo, std::vector<char> &conteudo);
+
+	const int ERRO_VERIFICACAO_ARQUIVO = 110;
 	int obter_info_arquivo(std::string caminho_arquivo, InfoArquivoIsilon &info_arquivo);
-	void excluir_arquivo(std::string caminho_arquivo);
+
+	const int ERRO_EXCLUIR_ARQUIVO = 107;
+	int excluir_arquivo(std::string caminho_arquivo);
+
+	const int ERRO_CRIAR_DIRETORIO = 109;
 	int criar_diretorio(std::string caminho);
 	int criar_estrutura_diretorio(std::string caminho);
 };

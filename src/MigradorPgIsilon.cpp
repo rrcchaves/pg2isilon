@@ -71,25 +71,29 @@ void MigrarDocumento(unsigned long &total_bytes, double &total_tempo, MetadadosD
     std::string novo_resumo = picosha2::hash256_hex_string(conteudo);
     total_bytes += conteudo.size();
     std::string caminho_arquivo_enviado;
-    int resultado = cliente_isilon.salvar_arquivo(conteudo, documento.data_inclusao, caminho_arquivo_enviado, TipoSalvamentoIsilon::SIMPLES);
+    int resultado;
+    for (unsigned int i = 0; i < 5; i++)
+    {
+        resultado = cliente_isilon.salvar_arquivo(conteudo, documento.data_inclusao, caminho_arquivo_enviado, TipoSalvamentoIsilon::COM_VERIFICACAO);
+        if (resultado == cliente_isilon.SUCESSO) { break; }
+    }
     //std::string caminho_arquivo = "TRE-DF2/" + data_hora.obterCarimboTempoComoCaminho() + novo_resumo;
     //ManipuladorArquivo::salvar_arquivo(caminho_arquivo, conteudo);
     InfoArquivoIsilon info_arquivo;
     if (resultado == cliente_isilon.SUCESSO)
     {
         cliente_pg.AtualizarMetadadosDocumento(documento, novo_resumo, caminho_arquivo_enviado);
-        cliente_isilon.obter_info_arquivo(caminho_arquivo_enviado, info_arquivo);
     }
     fim = clock();
 	double duracao_ms = double(fim - inicio) * 1000 / CLOCKS_PER_SEC;
     total_tempo += duracao_ms;
-    if (resultado == cliente_isilon.SUCESSO && conteudo.size() == info_arquivo._tamanho)
+    if (resultado == cliente_isilon.SUCESSO)
     {
         console->info("[OK] Documento: {0}. Tamanho: {1}. Tempo de envio: {2} ms", caminho_arquivo_enviado, info_arquivo._tamanho, duracao_ms);
     }
     else
     {
-        console->info("[ERRO] Documento: {0}. Tamanho original/enviado: {1}/{2}. Tempo de envio: {3} ms", caminho_arquivo_enviado, conteudo.size(), info_arquivo._tamanho, duracao_ms);
+        console->info("[ERRO] Documento: {0}. Tamanho original/enviado: {1}/{2}. Tempo de envio: {3} ms", caminho_arquivo_enviado, conteudo.size(), info_arquivo._tamanho, duracao_ms);        
     }
 }
 
@@ -124,15 +128,32 @@ int main()
     LerConfiguracaoIsilon(configuracao_conexao_isilon, "isilon.config");
 	ClienteIsilon cliente_isilon(configuracao_conexao_isilon);
 
-    //std::vector<MetadadosDocumentos> lista_documentos;
-    //cliente_pg.ListarDocumentos(lista_documentos);
+    std::vector<MetadadosDocumentos> lista_documentos;
+    cliente_pg.ListarDocumentos(lista_documentos);
 
-    //MigrarDocumentos(lista_documentos, cliente_pg, cliente_isilon);
+    MigrarDocumentos(lista_documentos, cliente_pg, cliente_isilon);
 
-    InfoArquivoIsilon info_arquivo;
-    cliente_isilon.obter_info_arquivo(
-        "/TRE-DF_TESTE/2017/10/10/18/091a5240159bc7e844bf788783a48cef7ef584f5e1cc569321e2ca23698d21c3",
-        info_arquivo);
+    //InfoArquivoIsilon info_arquivo;
+    //cliente_isilon.obter_info_arquivo(
+    //    "/TRE-DF_TESTE/2017/10/10/18/091a5240159bc7e844bf788783a48cef7ef584f5e1cc569321e2ca23698d21c3",
+    //    info_arquivo);
+    //std::cout << info_arquivo.to_string() << std::endl;
+    
+    Finalizar();
+    return 0;
+    std::vector<std::string> arquivos;
+    std::string prefixo = "/TRE-DF_TESTE/";
+    cliente_isilon.listar_arquivos(arquivos, prefixo);
+    std::cout << "tamanho lista: " << arquivos.size() << std::endl;
+
+    for (unsigned int i = 0; i < arquivos.size(); i++)
+    {
+        std::string arquivo_para_excluir = prefixo + arquivos[i];
+        std::cout << "Excluindo " << arquivo_para_excluir << std::endl;
+        cliente_isilon.excluir_arquivo(arquivo_para_excluir);
+    }
+    //cliente_isilon.excluir_arquivo("/TRE-DF_TESTE/2017/10/10/18/186c10627b5ff8daacde61c2728e3ca007a78d1d82fee7a98a360b070357d51d");
+
     Finalizar();
     return EXIT_SUCCESS;
 }

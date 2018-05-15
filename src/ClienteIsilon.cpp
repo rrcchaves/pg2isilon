@@ -6,6 +6,9 @@
 #include <exception>
 #include "picosha2.h"
 #include "Manipuladores.hpp"
+#include "md5.h"
+#include <chrono>
+#include <thread>
 
 std::string InfoArquivoIsilon::to_string()
 {
@@ -40,8 +43,22 @@ std::string InfoDiretorioIsilon::to_string()
 RestClient::Connection* ClienteIsilon::criar_conexao(std::string url)
 {
 	RestClient::Connection* conexao = new RestClient::Connection(url);
-	conexao->SetTimeout(15); //15 segundos
+	conexao->SetTimeout(120); //120 segundos
 	conexao->FollowRedirects(true);
+	return conexao;
+}
+
+RestClient::Connection* ClienteIsilon::obter_conexao_com_token()
+{
+	if (this->_token_armazenamento.empty())
+	{
+		this->atualizar_token_armazenamento();
+	}
+	RestClient::Connection* conexao = this->criar_conexao(this->_url_area_armazenamento);
+	RestClient::HeaderFields cabecalho;
+	conexao->SetHeaders(cabecalho);
+	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
+	conexao->AppendHeader("Cache-Control", "no-store, must-revalidate");
 	return conexao;
 }
 
@@ -95,85 +112,109 @@ int ClienteIsilon::validar_resposta_requisicao(RestClient::Response &resposta)
 		case 401: 
 			return ERRO_NAO_AUTORIZADO;
 		case 200:
+		case 204:
 			return SUCESSO;
 		default:
 			return SUCESSO;
 	}
 }
 
-int ClienteIsilon::listar_arquivos(std::vector<std::string> &arquivos)
+int ClienteIsilon::listar_arquivos(std::vector<std::string> &arquivos, std::string caminho_diretorio)
 {
-	if (this->_token_armazenamento.empty())
+	RestClient::Connection* conexao = ClienteIsilon::obter_conexao_com_token();
+	RestClient::Response resposta = conexao->get(caminho_diretorio);
+	// Respostas válidas:
+	// -> 200 caso o diretório exista e possua arquivos
+	// -> 204 caso o diretório existe e não possua arquivos
+	// -> 404 caso o diretório não exista
+	// Respostas inválidas:
+	// -> 401 sem autorização (renovar token)
+	int resultado = ERRO_NAO_ESPERADO;
+	if (resposta.code == 200 || resposta.code == 204)
 	{
-		int retorno = this->atualizar_token_armazenamento();
-		if (retorno != SUCESSO) { return retorno; }
+		ManipuladorString::quebrar(resposta.body, arquivos);
+		resultado = SUCESSO;
 	}
-	RestClient::Connection* conexao = ClienteIsilon::criar_conexao(this->_url_area_armazenamento);
-	RestClient::HeaderFields cabecalho;
-	conexao->SetHeaders(cabecalho);
-	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
-	RestClient::Response resposta = conexao->get(this->_diretorio_base);
-	int validacao = this->validar_resposta_requisicao(resposta);
-	if (validacao != SUCESSO)
+	else if (resposta.code == 401)
 	{
 		this->_token_armazenamento.clear();
-		return validacao;
+		resultado = ERRO_LISTAR_ARQUIVOS;
 	}
-	ManipuladorString::quebrar(resposta.body, arquivos);
 	delete conexao;
-	return SUCESSO;
+	return resultado;
 }
 
 int ClienteIsilon::recuperar_arquivo(std::string caminho_arquivo, std::vector<char> &conteudo)
 {
-	if (this->_token_armazenamento.empty())
-	{
-		int retorno = this->atualizar_token_armazenamento();
-		if (retorno != SUCESSO) { return retorno; }
-	}
-	RestClient::Connection* conexao = ClienteIsilon::criar_conexao(this->_url_area_armazenamento);
-	RestClient::HeaderFields cabecalho;
-	conexao->SetHeaders(cabecalho);
-	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
+	RestClient::Connection* conexao = ClienteIsilon::obter_conexao_com_token();
 	RestClient::Response resposta = conexao->get(caminho_arquivo);
-	int validacao = this->validar_resposta_requisicao(resposta);
-	if (validacao != SUCESSO)
+	// Respostas válidas:
+	// -> 200 caso o arquivo exista
+	// Respostas inválidas:
+	// -> 404 caso o arquivo não exista
+	// -> 401 sem autorização (renovar token)
+	int resultado = ERRO_NAO_ESPERADO;
+	if (resposta.code == 200)
+	{
+		unsigned long tamanho = resposta.body.length();
+		conteudo.reserve(tamanho);
+		std::copy(resposta.body.begin(), resposta.body.end(), std::back_inserter(conteudo));
+		resultado = SUCESSO;
+	}
+	else if (resposta.code == 404)
+	{
+		resultado = ERRO_NAO_ENCONTADO;
+	}
+	else if (resposta.code == 401)
 	{
 		this->_token_armazenamento.clear();
-		return validacao;
+		resultado = ERRO_NAO_AUTORIZADO;
 	}
-	unsigned long tamanho = resposta.body.length();
-	conteudo.reserve(tamanho);
-	std::copy(resposta.body.begin(), resposta.body.end(), std::back_inserter(conteudo));
 	delete conexao;
-	return SUCESSO;
+	return resultado;
 }
 
 int ClienteIsilon::salvar_arquivo(std::vector<char> &conteudo, DataHora data_hora, std::string &caminho_arquivo, TipoSalvamentoIsilon tipo_salvamento)
 {
-	if (this->_token_armazenamento.empty())
-	{
-		int retorno = this->atualizar_token_armazenamento();
-		if (retorno != SUCESSO) { return retorno; }
-	}
-	RestClient::Connection* conexao = ClienteIsilon::criar_conexao(this->_url_area_armazenamento);
-	RestClient::HeaderFields cabecalho;
-	conexao->SetHeaders(cabecalho);
-	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
+	RestClient::Connection* conexao = ClienteIsilon::obter_conexao_com_token();
 	std::string conteudo2(conteudo.begin(), conteudo.end());
 	std::string resumo = picosha2::hash256_hex_string(conteudo.begin(), conteudo.end());
 	caminho_arquivo.clear();
 	caminho_arquivo.append(this->_diretorio_base + data_hora.obterCarimboTempoComoCaminho() + resumo);
 	RestClient::Response resposta = conexao->put(caminho_arquivo, conteudo2);
-	int validacao = this->validar_resposta_requisicao(resposta);
-	if (validacao == ERRO_NAO_AUTORIZADO)
+	int resultado = ERRO_NAO_ESPERADO;
+	// Respostas válidas:
+	// -> 201 caso o arquivo seja criado
+	// -> -1 (neste caso o arquivo ainda é criado)
+	// Respostas inválidas:
+	// -> 401 sem autorização (renovar token)
+	if (resposta.code == 401)
 	{
 		this->_token_armazenamento.clear();
-		delete conexao;
-		return validacao;
+		resultado = ERRO_NAO_AUTORIZADO;
+	}
+	else if (resposta.code == 201)
+	{
+		if (tipo_salvamento == TipoSalvamentoIsilon::COM_VERIFICACAO)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			unsigned long long tamanho_original = conteudo.size();
+			std::string etag_original = MD5(conteudo2).hexdigest();
+			InfoArquivoIsilon info_arquivo;
+			this->obter_info_arquivo(caminho_arquivo, info_arquivo);
+			//std::cout << "etag original: " << etag_original << std::endl;
+			//std::cout << "etag obtida: " << info_arquivo._e_tag << std::endl;
+			//std::cout << "tamanho original: " << tamanho_original << std::endl;
+			//std::cout << "tamanho obtido: " << info_arquivo._tamanho << std::endl;
+			if (tamanho_original != info_arquivo._tamanho && etag_original.compare(info_arquivo._e_tag) != 0)
+			{
+				resultado = ERRO_VERIFICACAO_SALVAMENTO_ARQUIVO;
+			}
+		}
+		resultado = SUCESSO;
 	}
 	delete conexao;
-	return SUCESSO;
+	return resultado;
 }
 
 int ClienteIsilon::salvar_arquivo(std::vector<char> &conteudo, std::string &caminho_arquivo, TipoSalvamentoIsilon tipo_salvamento)
@@ -184,63 +225,98 @@ int ClienteIsilon::salvar_arquivo(std::vector<char> &conteudo, std::string &cami
 
 int ClienteIsilon::obter_info_arquivo(std::string caminho_arquivo, InfoArquivoIsilon &info_arquivo)
 {
-	if (this->_token_armazenamento.empty())
-	{
-		int retorno = this->atualizar_token_armazenamento();
-		if (retorno != SUCESSO) { return retorno; }
-	}
-	RestClient::Connection* conexao = ClienteIsilon::criar_conexao(this->_url_area_armazenamento);
-	RestClient::HeaderFields cabecalho;
-	conexao->SetHeaders(cabecalho);
-	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
+	RestClient::Connection* conexao = ClienteIsilon::obter_conexao_com_token();
 	RestClient::Response resposta = conexao->head(caminho_arquivo);
-	int validacao = validar_resposta_requisicao(resposta);
-	if (validacao != SUCESSO)
+	// Respostas válidas:
+	// -> 200 caso o diretório exista
+	// Respostas inválidas:
+	// -> 404 caso o arquivo não exista
+	// -> 401 sem autorização (renovar token)
+	int resultado = SUCESSO;
+	if (resposta.code == 401)
 	{
 		this->_token_armazenamento.clear();
-		delete conexao;
-		return validacao;
+		resultado = ERRO_NAO_AUTORIZADO;
 	}
-	info_arquivo._tamanho = std::atoll(resposta.headers["Content-Length"].c_str());
-	info_arquivo._carimbo_tempo = std::atoll(resposta.headers["X-Timestamp"].c_str());
-	info_arquivo._data_ultima_modificacao = resposta.headers["Last-Modified"].c_str();
-	info_arquivo._e_tag = resposta.headers["ETag"].c_str();
+	if (resposta.code == 404)
+	{
+		resultado = ERRO_NAO_ENCONTADO;
+	}
+	if (resposta.code == 200)
+	{
+		info_arquivo._tamanho = std::atoll(resposta.headers["Content-Length"].c_str());
+		info_arquivo._carimbo_tempo = std::atoll(resposta.headers["X-Timestamp"].c_str());
+		info_arquivo._data_ultima_modificacao = resposta.headers["Last-Modified"].c_str();
+		info_arquivo._e_tag = resposta.headers["ETag"].c_str();
+	}
 	delete conexao;
-	return SUCESSO;
+	return resultado;
 }
 
 int ClienteIsilon::criar_estrutura_diretorio(std::string caminho)
 {
 	std::vector<std::string> sub_caminhos;
 	ManipuladorArquivo::quebrar_caminho(sub_caminhos, caminho);
+	int resultado = SUCESSO;
+	int resultado_parcial = ERRO_NAO_ESPERADO;
 	for (auto it = sub_caminhos.begin(); it != sub_caminhos.end(); ++it)
 	{
-		this->criar_diretorio(*it);
+		resultado_parcial = this->criar_diretorio(*it);
+		if (resultado_parcial != SUCESSO)
+		{
+			resultado = resultado_parcial;
+		}
 	}
-	return SUCESSO;
+	return resultado;
 }
 
-int ClienteIsilon::criar_diretorio(std::string caminho)
+int ClienteIsilon::criar_diretorio(std::string caminho_diretorio)
 {
-	if (this->_token_armazenamento.empty())
+	RestClient::Connection* conexao = this->obter_conexao_com_token();
+	RestClient::Response resposta = conexao->put(caminho_diretorio, "");
+	// Respostas válidas:
+	// -> 201 caso arquivo seja criado;
+	// Respostas inválidas:
+	// -> 401 sem autorização (renovar token)
+	int resultado = ERRO_NAO_ESPERADO;
+	if (resposta.code == 201)
 	{
-		int retorno = this->atualizar_token_armazenamento();
-		if (retorno != SUCESSO) { return retorno; }
+		resultado = SUCESSO;
 	}
-	RestClient::Connection* conexao = new RestClient::Connection(this->_url_area_armazenamento);
-	RestClient::HeaderFields cabecalho;
-	conexao->SetHeaders(cabecalho);
-	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
-	RestClient::Response resposta = conexao->put(caminho, "");
-	int validacao = this->validar_resposta_requisicao(resposta);
-	if (validacao != SUCESSO)
+	else if (resposta.code == 401)
 	{
 		this->_token_armazenamento.clear();
-		delete conexao;
-		return validacao;
+		resultado = ERRO_NAO_AUTORIZADO;
 	}
 	delete conexao;
-	return SUCESSO;
+	return resultado;
+}
+
+int ClienteIsilon::excluir_arquivo(std::string caminho_arquivo)
+{
+	RestClient::Connection* conexao = ClienteIsilon::obter_conexao_com_token();
+	RestClient::Response resposta = conexao->del(caminho_arquivo);
+	// Respostas válidas:
+	// -> 204 caso arquivo exista;
+	// Respostas inválidas:
+	// -> 404 caso arquivo não exista.
+	// -> 401 sem autorização (renovar token)
+	int resultado = ERRO_NAO_ESPERADO;
+	if (resposta.code == 200)
+	{
+		resultado = SUCESSO;
+	}
+	else if (resposta.code == 401)
+	{
+		this->_token_armazenamento.clear();
+		resultado = ERRO_NAO_AUTORIZADO;
+	} 
+	else if (resposta.code == 404)
+	{
+		resultado = ERRO_NAO_ENCONTADO;
+	}
+	delete conexao;
+	return resultado;
 }
 
 /*

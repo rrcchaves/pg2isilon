@@ -7,6 +7,14 @@
 #include "restclient-cpp/connection.h"
 #include "restclient-cpp/restclient.h"
 
+struct ConfiguracaoConexaoIsilon
+{
+	std::string _url_autenticacao;
+	std::string _nome_usuario;
+	std::string _senha_usuario;
+	std::string _diretorio_base;
+};
+
 enum TipoSalvamentoIsilon
 {
 	SIMPLES, COM_VERIFICACAO
@@ -14,36 +22,28 @@ enum TipoSalvamentoIsilon
 
 class InfoArquivoIsilon
 {
-private:
-	unsigned long _tamanho;
-	unsigned long _carimbo_tempo;
+public:
+	unsigned long long _tamanho;
+	unsigned long long _carimbo_tempo;
 	std::string _data_ultima_modificacao;
 	std::string _e_tag;
-public:
-	InfoArquivoIsilon(unsigned long tamanho, unsigned long carimbo_tempo, std::string data_ultima_modificao, std::string e_tag):
+	InfoArquivoIsilon() {}
+	InfoArquivoIsilon(unsigned long long tamanho, unsigned long long carimbo_tempo, std::string data_ultima_modificao, std::string e_tag):
 		_tamanho(tamanho), _carimbo_tempo(carimbo_tempo), _data_ultima_modificacao(data_ultima_modificao), _e_tag(e_tag) {}
-	~InfoArquivoIsilon();
+	~InfoArquivoIsilon() {}
 	std::string to_string();
-	unsigned long tamanho() { return this->_tamanho; }
-	unsigned long carimbo_tempo() { return this->_carimbo_tempo; }
-	std::string data_ultima_modificao() { return this->_data_ultima_modificacao; }
-	std::string e_tag() { return this->_e_tag; }
 };
 
 class InfoDiretorioIsilon
 {
-private:
-	unsigned long _quantidade_arquivos;
-	unsigned long _carimbo_tempo;
-	std::string _data_ultima_modificacao;
 public:
-	InfoDiretorioIsilon(unsigned long quantidade_arquivos, unsigned long carimbo_tempo, std::string data_ultima_modificacao):
+	unsigned long long _quantidade_arquivos;
+	unsigned long long _carimbo_tempo;
+	std::string _data_ultima_modificacao;
+	InfoDiretorioIsilon(unsigned long long quantidade_arquivos, unsigned long long carimbo_tempo, std::string data_ultima_modificacao):
 		_quantidade_arquivos(quantidade_arquivos), _carimbo_tempo(carimbo_tempo), _data_ultima_modificacao(data_ultima_modificacao) {}
 	~InfoDiretorioIsilon();
 	std::string to_string();
-	unsigned long quantidade_arquivos() { return this->_quantidade_arquivos; }
-	unsigned long carimbo_tempo() { return this->_carimbo_tempo; }
-	std::string data_ultima_modificacao() { return this->_data_ultima_modificacao; }
 };
 
 class ClienteIsilon
@@ -74,17 +74,27 @@ public:
 	{
 		RestClient::init();
 	}
+    ClienteIsilon(ConfiguracaoConexaoIsilon config):
+        _url_autenticacao(config._url_autenticacao), 
+		_nome_usuario(config._nome_usuario), 
+		_senha_usuario(config._senha_usuario), 
+		_diretorio_base(config._diretorio_base)
+	{
+		RestClient::init();
+	}
     ~ClienteIsilon()
 	{
 		RestClient::disable();
 	}
     void obter_info_diretorio();
-    void obter_info_arquivo();
     int listar_arquivos(std::vector<std::string> &arquivos);
     int salvar_arquivo(std::vector<char> &conteudo, std::string &caminho_arquivo, TipoSalvamentoIsilon tipoSalvamento);
     int salvar_arquivo(std::vector<char> &conteudo, DataHora data_hora, std::string &caminho_arquivo, TipoSalvamentoIsilon tipoSalvamento);
     int recuperar_arquivo(std::string caminho_arquivo, std::vector<char> &conteudo);
+	int obter_info_arquivo(std::string caminho_arquivo, InfoArquivoIsilon &info_arquivo);
 	void excluir_arquivo(std::string caminho_arquivo);
+	int criar_diretorio(std::string caminho);
+	int criar_estrutura_diretorio(std::string caminho);
 };
 
 class Arquivo

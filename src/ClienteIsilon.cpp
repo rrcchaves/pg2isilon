@@ -89,6 +89,7 @@ int ClienteIsilon::validar_resposta_requisicao(RestClient::Response &resposta)
 {
 	switch (resposta.code)
 	{
+		case -1:
 		case 404:
 			return ERRO_NAO_ENCONTADO;
 		case 401: 
@@ -142,7 +143,6 @@ int ClienteIsilon::recuperar_arquivo(std::string caminho_arquivo, std::vector<ch
 		return validacao;
 	}
 	unsigned long tamanho = resposta.body.length();
-	std::cout << "> size: " << tamanho << std::endl;
 	conteudo.reserve(tamanho);
 	std::copy(resposta.body.begin(), resposta.body.end(), std::back_inserter(conteudo));
 	delete conexao;
@@ -166,15 +166,14 @@ int ClienteIsilon::salvar_arquivo(std::vector<char> &conteudo, DataHora data_hor
 	caminho_arquivo.append(this->_diretorio_base + data_hora.obterCarimboTempoComoCaminho() + resumo);
 	RestClient::Response resposta = conexao->put(caminho_arquivo, conteudo2);
 	int validacao = this->validar_resposta_requisicao(resposta);
-	if (validacao != SUCESSO)
+	if (validacao == ERRO_NAO_AUTORIZADO)
 	{
 		this->_token_armazenamento.clear();
+		delete conexao;
 		return validacao;
 	}
-	std::cout << "Resposta: " << resposta.code << std::endl;
-	std::cout << conteudo2.length() << " bytes gravados em " << caminho_arquivo << std::endl;
 	delete conexao;
-	return SUCESSO;	
+	return SUCESSO;
 }
 
 int ClienteIsilon::salvar_arquivo(std::vector<char> &conteudo, std::string &caminho_arquivo, TipoSalvamentoIsilon tipo_salvamento)
@@ -182,6 +181,68 @@ int ClienteIsilon::salvar_arquivo(std::vector<char> &conteudo, std::string &cami
 	DataHora agora;
 	return this->salvar_arquivo(conteudo, agora, caminho_arquivo, tipo_salvamento);
 }
+
+int ClienteIsilon::obter_info_arquivo(std::string caminho_arquivo, InfoArquivoIsilon &info_arquivo)
+{
+	if (this->_token_armazenamento.empty())
+	{
+		int retorno = this->atualizar_token_armazenamento();
+		if (retorno != SUCESSO) { return retorno; }
+	}
+	RestClient::Connection* conexao = ClienteIsilon::criar_conexao(this->_url_area_armazenamento);
+	RestClient::HeaderFields cabecalho;
+	conexao->SetHeaders(cabecalho);
+	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
+	RestClient::Response resposta = conexao->head(caminho_arquivo);
+	int validacao = validar_resposta_requisicao(resposta);
+	if (validacao != SUCESSO)
+	{
+		this->_token_armazenamento.clear();
+		delete conexao;
+		return validacao;
+	}
+	info_arquivo._tamanho = std::atoll(resposta.headers["Content-Length"].c_str());
+	info_arquivo._carimbo_tempo = std::atoll(resposta.headers["X-Timestamp"].c_str());
+	info_arquivo._data_ultima_modificacao = resposta.headers["Last-Modified"].c_str();
+	info_arquivo._e_tag = resposta.headers["ETag"].c_str();
+	delete conexao;
+	return SUCESSO;
+}
+
+int ClienteIsilon::criar_estrutura_diretorio(std::string caminho)
+{
+	std::vector<std::string> sub_caminhos;
+	ManipuladorArquivo::quebrar_caminho(sub_caminhos, caminho);
+	for (auto it = sub_caminhos.begin(); it != sub_caminhos.end(); ++it)
+	{
+		this->criar_diretorio(*it);
+	}
+	return SUCESSO;
+}
+
+int ClienteIsilon::criar_diretorio(std::string caminho)
+{
+	if (this->_token_armazenamento.empty())
+	{
+		int retorno = this->atualizar_token_armazenamento();
+		if (retorno != SUCESSO) { return retorno; }
+	}
+	RestClient::Connection* conexao = new RestClient::Connection(this->_url_area_armazenamento);
+	RestClient::HeaderFields cabecalho;
+	conexao->SetHeaders(cabecalho);
+	conexao->AppendHeader("X-Auth-Token", this->_token_autenticacao);
+	RestClient::Response resposta = conexao->put(caminho, "");
+	int validacao = this->validar_resposta_requisicao(resposta);
+	if (validacao != SUCESSO)
+	{
+		this->_token_armazenamento.clear();
+		delete conexao;
+		return validacao;
+	}
+	delete conexao;
+	return SUCESSO;
+}
+
 /*
 int main()
 {

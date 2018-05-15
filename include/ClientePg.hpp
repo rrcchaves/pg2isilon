@@ -23,7 +23,9 @@ struct MetadadosDocumentos
 {
     long id;
     std::string nr_documento_storage;
-    MetadadosDocumentos(long id, std::string nr_documento_storage) : id(id), nr_documento_storage(nr_documento_storage) {}
+    DataHora data_inclusao;
+    MetadadosDocumentos(long id, std::string nr_documento_storage, DataHora &data_inclusao): 
+        id(id), nr_documento_storage(nr_documento_storage), data_inclusao(data_inclusao) {}
 };
 
 class ClientePg

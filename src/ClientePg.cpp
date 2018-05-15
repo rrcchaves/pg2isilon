@@ -94,7 +94,6 @@ int ClientePg::ObterConteudoDocumento(std::vector<char> &conteudo, std::string r
 		if (resultado_bin.size() > 0)
 		{
             pqxx::oid ident = resultado_bin[0][0].as<pqxx::oid>();
-            std::cout << "OID: " << ident << std::endl;
             pqxx::largeobject campo(ident);
             pqxx::ilostream leitor(txn_bin, campo);
             conteudo = std::vector<char>(std::istreambuf_iterator<char>(leitor), std::istreambuf_iterator<char>());
@@ -132,7 +131,7 @@ int ClientePg::ListarDocumentos(std::vector<MetadadosDocumentos> &lista_document
         return validacao;
     }
     lista_documentos.reserve(quantidade);
-    std::string sql = "SELECT id_processo_documento_bin, nr_documento_storage FROM core.tb_processo_documento_bin WHERE nr_documento_storage IS NOT NULL AND nr_documento_storage NOT ILIKE '/%'";
+    std::string sql = "SELECT id_processo_documento_bin, nr_documento_storage, dt_inclusao FROM core.tb_processo_documento_bin WHERE nr_documento_storage IS NOT NULL AND nr_documento_storage NOT ILIKE '/%'";
     if (inicio != 0 || fim != 0)
     {
         sql.append(" AND (id_processo_documento_bin >= $1 AND id_processo_documento_bin <= $2)");
@@ -157,7 +156,8 @@ int ClientePg::ListarDocumentos(std::vector<MetadadosDocumentos> &lista_document
             }
             for (pqxx::result::const_iterator row = resultado.begin(); row != resultado.end(); ++row)
             {
-                lista_documentos.emplace_back(row[0].num(), row[1].c_str());
+                DataHora data_hora_inclusao(row[2].c_str());
+                lista_documentos.emplace_back(std::atol(row[0].c_str()), row[1].c_str(), data_hora_inclusao);
             }
 		}
 	}
